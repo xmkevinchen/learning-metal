@@ -16,6 +16,8 @@ class Renderer: NSObject, MTKViewDelegate {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let vertexBuffer: MTLBuffer
+    private let indexBuffer: MTLBuffer
+    private let indexCount: Int
     private var pipelineState: MTLRenderPipelineState?
     
     init(view: MTKView, device: MTLDevice) {
@@ -24,16 +26,24 @@ class Renderer: NSObject, MTKViewDelegate {
         self.commandQueue = device.makeCommandQueue()!
         
         let vertices = [
-            Vertex(position: [-0.75, -0.75], color: [1.0, 0.0, 0.0, 1.0]),
-            Vertex(position: [ 0.75, -0.75], color: [0.0, 1.0, 0.0, 1.0]),
-            Vertex(position: [    0,  0.75], color: [0.0, 0.0, 1.0, 1.0]),
+            Vertex(position: [-0.75, -0.75], color: [1.0, 0.0, 0.0, 1.0]),      // 0
+            Vertex(position: [ 0.75, -0.75], color: [0.0, 1.0, 0.0, 1.0]),      // 1
+            Vertex(position: [ 0.75,  0.75], color: [0.0, 0.0, 1.0, 1.0]),      // 2
+            Vertex(position: [-0.75,  0.75], color: [0.0, 1.0, 0.0, 1.0]),      // 3
         ]
         
         vertexBuffer = device.makeBuffer(bytes: vertices, length: vertices.count * MemoryLayout<Vertex>.stride)!
         
+        let indecies: [UInt16] = [
+            0, 1, 2,
+            2, 3, 0,
+        ]
+        indexCount = indecies.count
+        indexBuffer = device.makeBuffer(bytes: indecies, length: indecies.count * MemoryLayout<UInt16>.stride)!
+        
         do {
             pipelineState = try Renderer.createPipelineState(device: device,
-                                                                  label: "Triangle Pipeline",
+                                                                  label: "Renderer",
                                                                   pixelFormat: view.colorPixelFormat)
         } catch (let error) {
             print("====> Fail to create render pipeline: \(error)")
@@ -86,7 +96,11 @@ class Renderer: NSObject, MTKViewDelegate {
         if let pipelineState = pipelineState {
             onscreenCommandEncoder.setRenderPipelineState(pipelineState)
             onscreenCommandEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-            onscreenCommandEncoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+            onscreenCommandEncoder.drawIndexedPrimitives(type: .triangle,
+                                                         indexCount: indexCount,
+                                                         indexType: .uint16,
+                                                         indexBuffer: indexBuffer,
+                                                         indexBufferOffset: 0)
         }
         
         onscreenCommandEncoder.endEncoding()
