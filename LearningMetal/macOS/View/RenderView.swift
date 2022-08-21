@@ -8,7 +8,7 @@
 import SwiftUI
 import MetalKit
 
-struct TriangleView: NSViewRepresentable {
+struct RenderView: NSViewRepresentable {
     
     func makeNSView(context: Context) -> MTKView {
         mtkView.enableSetNeedsDisplay = true
@@ -25,7 +25,7 @@ struct TriangleView: NSViewRepresentable {
         
         private let render: Renderer
         
-        init(_ parent: TriangleView) {
+        init(_ parent: RenderView) {
             self.render = Renderer(view: parent.mtkView, device: MTLCreateSystemDefaultDevice()!)
         }
     }
@@ -38,6 +38,6 @@ struct TriangleView: NSViewRepresentable {
 
 struct TriangleView_Previews: PreviewProvider {
     static var previews: some View {
-        TriangleView()
+        RenderView()
     }
 }
