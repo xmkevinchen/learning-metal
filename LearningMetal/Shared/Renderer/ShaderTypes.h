@@ -13,6 +13,7 @@
 typedef struct {
     vector_float2 position;
     vector_float4 color;
+    vector_float2 textureCoordinate;
 } Vertex;
 
 
