@@ -8,7 +8,9 @@
 import MetalKit
 
 enum RendererError: Error {
-   case nilDefaultLibrary
+    case nilDevice
+    case nilCommandQueue
+    case nilDefaultLibrary
 }
 
 class Renderer: NSObject, MTKViewDelegate {
@@ -21,10 +23,18 @@ class Renderer: NSObject, MTKViewDelegate {
     private var pipelineState: MTLRenderPipelineState?
     private let texture: MTLTexture
     
-    init(view: MTKView, device: MTLDevice) {
+    init(view: MTKView) throws {
         self.view = view
+        guard let device = MTLCreateSystemDefaultDevice() else {
+            throw RendererError.nilDevice
+        }
+        
         self.device = device
-        self.commandQueue = device.makeCommandQueue()!
+        guard let commandQueue = device.makeCommandQueue() else {
+            throw RendererError.nilCommandQueue
+        }
+        
+        self.commandQueue = commandQueue
         
         /**
          Metal texture coordiantes are values from 0.0 to 1.0 (normalized) both x and y
@@ -46,36 +56,12 @@ class Renderer: NSObject, MTKViewDelegate {
         ]
         indexCount = indecies.count
         indexBuffer = device.makeBuffer(bytes: indecies, length: indecies.count * MemoryLayout<UInt16>.stride)!
-     
-        do {
-            // Load Texture
-            let textureLoader = MTKTextureLoader(device: device)
-            let options: [MTKTextureLoader.Option: Any] = [
-                .origin: MTKTextureLoader.Origin.topLeft]
-            
-#if os(macOS)
-            texture = try textureLoader.newTexture(name: "metal",
-                                                   scaleFactor: view.window?.backingScaleFactor ?? 2.0,
-                                                   bundle: nil,
-                                                   options: options)
-#else
-            texture = try textureLoader.newTexture(name: "metal",
-                                                   scaleFactor: view.contentScaleFactor,
-                                                   bundle: nil,
-                                                   options: options)
-#endif
-            
-            pipelineState = try Renderer.createPipelineState(device: device,
-                                                             label: "Renderer",
-                                                             pixelFormat: view.colorPixelFormat)
-        } catch (let error) {
-            print("====> Error occurred: \(error)")
-            fatalError()
-        }
         
+        texture = try Renderer.loadTexture(device: device, imageAssetName: "metal", scaleFactor: Renderer.scaleFactor(with: view))
+        pipelineState = try Renderer.createPipelineState(device: device, label: "Renderer", pixelFormat: view.colorPixelFormat)
         
         super.init()
-        
+        self.view.enableSetNeedsDisplay = true
         self.view.device = device
         self.view.delegate = self
     }
@@ -97,6 +83,24 @@ class Renderer: NSObject, MTKViewDelegate {
         return try device.makeRenderPipelineState(descriptor: pipelineStateDescriptor)
     }
     
+    static func loadTexture(device: MTLDevice, imageAssetName: String, scaleFactor: CGFloat, options: [MTKTextureLoader.Option: Any]? = nil) throws -> MTLTexture {
+        // Load Texture
+        let textureLoader = MTKTextureLoader(device: device)
+        
+        return try textureLoader.newTexture(name: imageAssetName,
+                                            scaleFactor: scaleFactor,
+                                            bundle: nil,
+                                            options: options)
+    }
+    
+    static func scaleFactor(with view: MTKView) -> CGFloat {
+#if os(macOS)
+        return view.window?.backingScaleFactor ?? 1.0
+#else
+        return view.contentScaleFactor
+#endif
+    }
+    
     // MARK: - MTKViewDelegate
     
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
@@ -105,38 +109,38 @@ class Renderer: NSObject, MTKViewDelegate {
     
     func draw(in view: MTKView) {
         guard let currentDrawable = view.currentDrawable,
-              let onscreenDescriptor = view.currentRenderPassDescriptor else {
+              let renderDescriptor = view.currentRenderPassDescriptor else {
             return
         }
         
-        onscreenDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1.0)
-        onscreenDescriptor.colorAttachments[0].loadAction = .clear
-        onscreenDescriptor.colorAttachments[0].storeAction = .store
-        onscreenDescriptor.colorAttachments[0].texture = currentDrawable.texture
+        renderDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1.0)
+        renderDescriptor.colorAttachments[0].loadAction = .clear
+        renderDescriptor.colorAttachments[0].storeAction = .store
+        renderDescriptor.colorAttachments[0].texture = currentDrawable.texture
         
-        guard let onscreenCommandBuffer = commandQueue.makeCommandBuffer(),
-              let onscreenCommandEncoder = onscreenCommandBuffer.makeRenderCommandEncoder(descriptor: onscreenDescriptor) else {
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderDescriptor) else {
             return
         }
-       
+        
         if let pipelineState = pipelineState {
-            onscreenCommandEncoder.setRenderPipelineState(pipelineState)
-            onscreenCommandEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
+            renderEncoder.setRenderPipelineState(pipelineState)
+            renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
             
             // Set the texture object
-            onscreenCommandEncoder.setFragmentTexture(texture, index: 0)
+            renderEncoder.setFragmentTexture(texture, index: 0)
             
-            onscreenCommandEncoder.drawIndexedPrimitives(type: .triangle,
-                                                         indexCount: indexCount,
-                                                         indexType: .uint16,
-                                                         indexBuffer: indexBuffer,
-                                                         indexBufferOffset: 0)
+            renderEncoder.drawIndexedPrimitives(type: .triangle,
+                                                indexCount: indexCount,
+                                                indexType: .uint16,
+                                                indexBuffer: indexBuffer,
+                                                indexBufferOffset: 0)
         }
         
-        onscreenCommandEncoder.endEncoding()
- 
-        onscreenCommandBuffer.present(currentDrawable)
-        onscreenCommandBuffer.commit()
+        renderEncoder.endEncoding()
+        
+        commandBuffer.present(currentDrawable)
+        commandBuffer.commit()
         
     }
     
